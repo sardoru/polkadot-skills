@@ -21,7 +21,16 @@ This repository fixes that with two things:
 
 ### For AI Coding Agents
 
-Point your agent at [`SKILL.md`](SKILL.md). It contains the full operating procedure: classify the task, pick the right building blocks, implement with correctness, test, and deliver.
+Three ways to ingest:
+
+| Method | File | Best For |
+|--------|------|----------|
+| Lightweight index | [`llms.txt`](llms.txt) | Fetch the index, then pull individual docs as needed |
+| Full knowledge base | [`llms-full.txt`](llms-full.txt) | Single fetch — all 13 docs concatenated (2,300+ lines) |
+| Structured discovery | [`.well-known/agent.json`](.well-known/agent.json) | Programmatic access with topic-based routing |
+| Entry point | [`SKILL.md`](SKILL.md) | Full operating procedure: classify, build, test, deliver |
+
+Or point your agent at `SKILL.md` directly — it contains the full operating procedure with links to all sub-documents.
 
 ### For Developers
 
@@ -89,6 +98,12 @@ polkadot-agent-mesh/
 |   |-- campaign/BOUNTY_PROPOSAL.md  Phase 3 bounty structure (18 child bounties)
 |   |-- campaign/CALL_TO_ACTION.md   Community rally document
 |   |-- campaign/TWITTER_THREAD.md   12-tweet social media campaign
+|
+|-- Agent-Friendly Discovery
+|   |-- llms.txt                      Lightweight doc index (llmstxt.org spec)
+|   |-- llms-full.txt                 All 13 docs concatenated for single-fetch ingestion
+|   |-- .well-known/agent.json        Structured JSON manifest with topic-based routing
+|   |-- CLAUDE.md                     Project instructions for AI agents (stack rules, traps)
 |
 |-- README.md                        This file
 ```
@@ -185,6 +200,19 @@ Want AI agents to build correctly on your parachain? Submit a PR with a chain-sp
 - Comment on the [Polkadot Forum post](#) with feedback or endorsement
 - Vote Aye when the referendum goes live
 - Share on Twitter/X with `#PolkadotAgentMesh`
+
+---
+
+## Agent-Friendly Discovery
+
+This repo follows the [llms.txt](https://llmstxt.org) standard and provides multiple ingestion paths for AI agents:
+
+| File | Format | Purpose |
+|------|--------|---------|
+| [`llms.txt`](llms.txt) | Markdown index | Lightweight discovery — links to all docs with descriptions |
+| [`llms-full.txt`](llms-full.txt) | Concatenated text | Full knowledge base in a single fetch (2,300+ lines) |
+| [`.well-known/agent.json`](.well-known/agent.json) | JSON manifest | Structured metadata with skills, documents, and topic tags |
+| [`CLAUDE.md`](CLAUDE.md) | Project instructions | Stack decisions, key patterns, and common hallucination traps |
 
 ---
 
