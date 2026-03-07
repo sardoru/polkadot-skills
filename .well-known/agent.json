@@ -1,0 +1,81 @@
+{
+  "name": "Polkadot Agent Mesh",
+  "description": "Canonical, opinionated developer guide for AI coding agents building on Polkadot. Covers PAPI, FRAME, ink!, XCM v5, Coretime, OpenGov, testing, and security.",
+  "version": "1.0.0",
+  "url": "https://github.com/sardoru/polkadot-skills",
+  "skills": [
+    {
+      "id": "polkadot-dev",
+      "name": "Polkadot Development",
+      "description": "Build on Polkadot using PAPI, FRAME pallets, ink! contracts, XCM v5, Agile Coretime, and OpenGov",
+      "entry_point": "https://raw.githubusercontent.com/sardoru/polkadot-skills/main/SKILL.md",
+      "documents": [
+        {
+          "name": "PAPI Client SDK",
+          "url": "https://raw.githubusercontent.com/sardoru/polkadot-skills/main/papi-client.md",
+          "topics": ["polkadot-api", "typed-api", "smoldot", "light-client", "signers", "transactions", "storage-queries"]
+        },
+        {
+          "name": "Substrate Pallets",
+          "url": "https://raw.githubusercontent.com/sardoru/polkadot-skills/main/substrate-pallets.md",
+          "topics": ["frame", "pallet", "storage", "benchmarking", "migrations", "hooks", "runtime"]
+        },
+        {
+          "name": "ink! Smart Contracts",
+          "url": "https://raw.githubusercontent.com/sardoru/polkadot-skills/main/ink-contracts.md",
+          "topics": ["ink", "smart-contracts", "wasm", "psp22", "psp34", "pop-cli", "cargo-contract"]
+        },
+        {
+          "name": "XCM Cross-Chain Messaging",
+          "url": "https://raw.githubusercontent.com/sardoru/polkadot-skills/main/xcm.md",
+          "topics": ["xcm", "cross-chain", "teleport", "reserve-transfer", "payfees", "initiate-transfer", "locations"]
+        },
+        {
+          "name": "Agile Coretime",
+          "url": "https://raw.githubusercontent.com/sardoru/polkadot-skills/main/coretime.md",
+          "topics": ["coretime", "broker-pallet", "on-demand", "bulk", "blockspace", "parachain"]
+        },
+        {
+          "name": "OpenGov Governance",
+          "url": "https://raw.githubusercontent.com/sardoru/polkadot-skills/main/opengov.md",
+          "topics": ["governance", "opengov", "referenda", "conviction-voting", "treasury", "tracks"]
+        },
+        {
+          "name": "Testing",
+          "url": "https://raw.githubusercontent.com/sardoru/polkadot-skills/main/testing.md",
+          "topics": ["chopsticks", "zombienet", "try-runtime", "unit-tests", "integration-tests", "fork-testing"]
+        },
+        {
+          "name": "Security Checklist",
+          "url": "https://raw.githubusercontent.com/sardoru/polkadot-skills/main/security.md",
+          "topics": ["security", "bounded-types", "reentrancy", "xcm-barriers", "storage-deposits", "weights"]
+        },
+        {
+          "name": "Frontend Framework Kit",
+          "url": "https://raw.githubusercontent.com/sardoru/polkadot-skills/main/frontend-framework-kit.md",
+          "topics": ["react", "nextjs", "papi", "wallet-connection", "smoldot", "dapp"]
+        },
+        {
+          "name": "polkadot.js Compatibility",
+          "url": "https://raw.githubusercontent.com/sardoru/polkadot-skills/main/polkadotjs-compat.md",
+          "topics": ["polkadotjs", "legacy", "migration", "compatibility", "boundary-pattern"]
+        },
+        {
+          "name": "Resources",
+          "url": "https://raw.githubusercontent.com/sardoru/polkadot-skills/main/resources.md",
+          "topics": ["documentation", "tools", "rpcs", "repositories", "faucets", "community"]
+        }
+      ]
+    }
+  ],
+  "llms_txt": "https://raw.githubusercontent.com/sardoru/polkadot-skills/main/llms.txt",
+  "llms_full_txt": "https://raw.githubusercontent.com/sardoru/polkadot-skills/main/llms-full.txt",
+  "contact": {
+    "github": "https://github.com/sardoru/polkadot-skills",
+    "forum": "https://forum.polkadot.network"
+  },
+  "license": "MIT",
+  "last_updated": "2026-03-07",
+  "ecosystem": "polkadot",
+  "tags": ["polkadot", "substrate", "papi", "ink", "xcm", "coretime", "opengov", "web3", "blockchain"]
+}

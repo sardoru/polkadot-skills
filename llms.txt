@@ -1,0 +1,32 @@
+# Polkadot Agent Mesh
+
+> The canonical, opinionated developer guide for AI coding agents building on Polkadot. 12 validated documents covering the full Polkadot dev stack: PAPI client SDK, FRAME pallets, ink! smart contracts, XCM v5 cross-chain messaging, Agile Coretime, OpenGov governance, testing, and security. All APIs validated against live sources with 44 corrections applied. Use PAPI (not polkadot.js), XCM v5 (not v4), Agile Coretime (not slot auctions).
+
+Stack decisions are non-negotiable: PAPI for client SDK, ink! + pop-cli for contracts, FRAME with unified `frame` crate for runtime dev, Chopsticks + Zombienet for testing, XCM v5 only, OpenGov for governance, Agile Coretime for blockspace.
+
+This repository also contains an Agent Spaces proposal: coretime-powered blockspaces for agent-to-agent economies on Polkadot, with agent identity (PRC-8004), reputation, and cross-chain coordination via extended XCM.
+
+## Docs
+
+- [SKILL.md](https://raw.githubusercontent.com/sardoru/polkadot-skills/main/SKILL.md): Main entry point. Stack decisions, operating procedure, task classification, ecosystem facts, common mistakes. Start here.
+- [PAPI Client](https://raw.githubusercontent.com/sardoru/polkadot-skills/main/papi-client.md): polkadot-api SDK. createClient, getTypedApi, Smoldot light client, Observable watchValue, signers, InvalidTxError. The default client for all new code.
+- [Substrate Pallets](https://raw.githubusercontent.com/sardoru/polkadot-skills/main/substrate-pallets.md): FRAME pallet development. #[frame::pallet], storage types, benchmarking with #[benchmarks], VersionedMigration, hooks, testing.
+- [ink! Contracts](https://raw.githubusercontent.com/sardoru/polkadot-skills/main/ink-contracts.md): ink! smart contracts. v5 stable, v6/PolkaVM beta. pop-cli for scaffold/build/deploy. PSP standards, pendzl library, cross-contract calls.
+- [XCM](https://raw.githubusercontent.com/sardoru/polkadot-skills/main/xcm.md): Cross-Consensus Messaging v5. Locations, assets, PayFees, InitiateTransfer, SetHints, Transact. Teleport and reserve transfer patterns.
+- [Coretime](https://raw.githubusercontent.com/sardoru/polkadot-skills/main/coretime.md): Agile Coretime. Broker pallet operations: purchase, partition, assign, transfer, interlace. On-demand vs bulk. Sale lifecycle.
+- [OpenGov](https://raw.githubusercontent.com/sardoru/polkadot-skills/main/opengov.md): On-chain governance. 15 tracks with dynamic approval/support curves. Conviction voting, preimages, referenda lifecycle, delegation.
+- [Testing](https://raw.githubusercontent.com/sardoru/polkadot-skills/main/testing.md): Chopsticks (fork-based), Zombienet (multi-node), try-runtime (migrations). Unit test patterns for pallets and ink! contracts.
+- [Security](https://raw.githubusercontent.com/sardoru/polkadot-skills/main/security.md): Security checklist. Substrate storage, extrinsic, and economic security. ink! reentrancy. XCM barriers and v5 Empowered Origins. Client-side and operational security.
+- [Frontend Kit](https://raw.githubusercontent.com/sardoru/polkadot-skills/main/frontend-framework-kit.md): React/Next.js + PAPI. Chain provider pattern, wallet connection, Observable balance hooks, transaction submission, DOT formatting.
+- [polkadot.js Compat](https://raw.githubusercontent.com/sardoru/polkadot-skills/main/polkadotjs-compat.md): Legacy polkadot.js compatibility. Boundary pattern: wrap at edges, never spread through codebase. Migration checklist to PAPI.
+- [Resources](https://raw.githubusercontent.com/sardoru/polkadot-skills/main/resources.md): Curated links. Official docs, tools, RPCs, key repositories, learning path, testnet faucets, community channels.
+
+## Architecture
+
+- [Agent Spaces Proposal](https://raw.githubusercontent.com/sardoru/polkadot-skills/main/PROPOSAL.md): Coretime-powered agent execution environments. Agent Registry Chain, Agent Spaces, Agent XCM Protocol. Polkadot's answer to Ethereum's ERC-8004.
+
+## Optional
+
+- [README](https://raw.githubusercontent.com/sardoru/polkadot-skills/main/README.md): Project overview, validation methodology, contribution guide.
+- [Treasury Proposal](https://raw.githubusercontent.com/sardoru/polkadot-skills/main/campaign/TREASURY_PROPOSAL.md): Formal Polkadot treasury funding proposal with milestones and budget.
+- [Bounty Proposal](https://raw.githubusercontent.com/sardoru/polkadot-skills/main/campaign/BOUNTY_PROPOSAL.md): Phase 3 bounty structure with 18 child bounties across 3 tracks.

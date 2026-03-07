@@ -1,0 +1,2315 @@
+# Polkadot Agent Mesh — Complete Reference
+
+> This is the full, concatenated version of all Polkadot Agent Mesh developer documents. It contains the complete, validated developer guide for AI coding agents building on Polkadot. 2,270 lines covering PAPI, FRAME, ink!, XCM v5, Coretime, OpenGov, testing, security, frontend patterns, and the Agent Spaces architecture proposal. All APIs validated against live sources.
+
+---
+
+# Polkadot Developer Skill — Agent-Native Dev Guide
+
+You are building on Polkadot. This document is the canonical, opinionated guide for AI coding agents and developers working with the Polkadot ecosystem. Follow these instructions exactly.
+
+## Stack Decisions (Non-Negotiable)
+
+| Layer            | Choice                          | Why                                                    |
+| ---------------- | ------------------------------- | ------------------------------------------------------ |
+| Client SDK       | PAPI (`polkadot-api`)           | Modern, typed, tree-shakeable. Default for all new code |
+| Legacy compat    | `@polkadot/api` at boundaries   | Wrap in adapter; never spread through codebase          |
+| Smart contracts  | ink! + `pop-cli`                | Best DX, Rust-native. v5 stable (Wasm), v6 beta (PolkaVM) |
+| Runtime dev      | FRAME pallets (Substrate)       | The native path for parachain logic                    |
+| Testing          | Chopsticks + Zombienet          | Fork-based fast tests + multi-node integration         |
+| Scaffolding      | `pop-cli` / `substrate-node-template` | One-command project setup                        |
+| XCM              | XCM v5                         | Don't teach deprecated versions                        |
+| Governance       | OpenGov via PAPI                | Direct on-chain interaction                            |
+| Coretime         | Agile Coretime broker pallet    | On-demand or bulk, never legacy slot auctions          |
+| Frontend         | React/Next.js + PAPI            | Type-safe, SSR-compatible                              |
+
+## Operating Procedure
+
+When a user asks you to build something on Polkadot, follow this sequence:
+
+### 1. Classify the Task
+
+| Task Type               | Go To                                      |
+| ------------------------ | ------------------------------------------ |
+| Build a dApp frontend    | [frontend-framework-kit.md](frontend-framework-kit.md) |
+| Connect to chain / read state | [papi-client.md](papi-client.md)      |
+| Use legacy polkadot.js   | [polkadotjs-compat.md](polkadotjs-compat.md) |
+| Write a smart contract   | [ink-contracts.md](ink-contracts.md)       |
+| Build a pallet / runtime | [substrate-pallets.md](substrate-pallets.md) |
+| Send cross-chain messages | [xcm.md](xcm.md)                          |
+| Allocate blockspace      | [coretime.md](coretime.md)                 |
+| Governance proposals     | [opengov.md](opengov.md)                   |
+| Test anything            | [testing.md](testing.md)                   |
+| Security review          | [security.md](security.md)                |
+| Find docs / examples     | [resources.md](resources.md)               |
+
+### 2. Pick Building Blocks
+
+- Always start with the simplest approach
+- Use PAPI for all chain interactions unless the user explicitly requests polkadot.js
+- For smart contracts, default to ink! unless the user specifies Solidity (via Frontier EVM)
+- For runtime logic, always use FRAME macros — never raw Substrate primitives
+
+### 3. Implement with Correctness
+
+- All extrinsics must handle errors: check `DispatchResult`, handle `DispatchError`
+- All client-side calls must handle disconnections and retry logic
+- Use proper types from chain metadata — never hardcode type IDs or pallet indices
+- XCM instructions must specify correct weight limits and asset filters
+
+### 4. Test
+
+- Unit tests: `#[test]` with `sp_io::TestExternalities` for pallets
+- Contract tests: `#[ink::test]` for off-chain, `drink!` or `e2e` for on-chain
+- Integration tests: Zombienet for multi-chain, Chopsticks for fork-based
+- Never ship without testing XCM flows end-to-end
+
+### 5. Deliver
+
+- Include migration logic if changing storage
+- Document dispatchable calls and events
+- Ensure benchmarks exist for all extrinsics (`#[benchmarks]` macro)
+- Weights must be derived from benchmarks, never hardcoded
+
+## Key Ecosystem Facts
+
+- **Relay Chain**: Polkadot (DOT) — shared security provider
+- **Parachains**: Independent L1s sharing Polkadot's security via coretime
+- **JAM**: Upcoming successor to the relay chain — a decentralized supercomputer. Design for JAM compatibility
+- **Asset Hub**: System parachain for native assets (DOT, USDT, USDC). Use XCM to interact
+- **Coretime**: Blockspace is purchased, not auctioned. On-demand or bulk via the Broker pallet
+- **OpenGov**: Fully on-chain governance. Proposals go through tracks with different thresholds
+- **XCM**: Cross-Consensus Messaging — the universal language for cross-chain communication in Polkadot
+
+## Common Mistakes to Avoid
+
+1. **Using polkadot.js for new projects** — Use PAPI. polkadot.js is maintenance-mode
+2. **Hardcoding chain metadata** — Always derive from runtime metadata via PAPI codegen
+3. **Ignoring weights** — Every extrinsic must have benchmarked weights
+4. **XCM without testing** — XCM bugs are production bugs. Always test with Chopsticks or Zombienet
+5. **Using XCM v4 or older** — XCM v5 is current. Use `PayFees` over `BuyExecution`, `InitiateTransfer` over `InitiateReserveWithdraw`
+6. **Slot auction references** — Polkadot uses Agile Coretime now, not auctions
+6. **Ignoring storage migrations** — Any storage change requires a migration or the chain breaks
+7. **Using `sudo` in production** — Polkadot uses OpenGov. `sudo` is for development only
+
+---
+
+# PAPI — Polkadot API Client
+
+## Overview
+
+PAPI (`polkadot-api`) is the modern, type-safe TypeScript client for Polkadot. It replaces `@polkadot/api` for all new projects. It generates types directly from chain metadata, giving you full autocomplete and compile-time safety.
+
+**Always use PAPI for new projects. Use polkadot.js only for legacy compatibility.**
+
+## Installation
+
+```bash
+# Core package
+npm install polkadot-api
+
+# Generate types for your target chain
+npx papi add dot -n polkadot    # Polkadot relay chain
+npx papi add ksm -n ksmcc3      # Kusama
+npx papi add wnd -n westend2    # Westend testnet
+npx papi add ah -n polkadot_asset_hub  # Asset Hub
+```
+
+This generates typed descriptors in `.papi/descriptors/` — commit these to your repo.
+
+## Connect to a Chain
+
+```typescript
+import { createClient } from "polkadot-api"
+import { getSmProvider } from "polkadot-api/sm-provider"
+import { chainSpec } from "polkadot-api/chains/polkadot"
+import { startFromWorker } from "polkadot-api/smoldot/from-worker"
+
+// Light client (recommended for dApps — no RPC dependency)
+const smoldot = startFromWorker(
+  new Worker(new URL("polkadot-api/smoldot/worker", import.meta.url))
+)
+const chain = await smoldot.addChain({ chainSpec })
+const client = createClient(getSmProvider(chain))
+
+// Or use WebSocket for development
+import { getWsProvider } from "polkadot-api/ws-provider/web"
+const client = createClient(getWsProvider("wss://rpc.polkadot.io"))
+```
+
+## Read Storage
+
+```typescript
+import { dot } from "@polkadot-api/descriptors"
+
+const api = client.getTypedApi(dot)
+
+// Single value
+const totalIssuance = await api.query.Balances.TotalIssuance.getValue()
+
+// Map entry
+const account = await api.query.System.Account.getValue("5GrwvaEF...")
+
+// Multiple map entries
+const entries = await api.query.System.Account.getEntries()
+for (const { keyArgs: [address], value } of entries) {
+  console.log(address, value.data.free)
+}
+
+// Watch for changes (reactive) — watchValue returns an Observable
+const subscription = api.query.System.Account.watchValue("5GrwvaEF...").subscribe((account) => {
+  console.log("Balance changed:", account.data.free)
+})
+// later: subscription.unsubscribe()
+```
+
+## Submit Transactions
+
+```typescript
+import { dot } from "@polkadot-api/descriptors"
+
+const api = client.getTypedApi(dot)
+
+// Build and submit a transfer
+const tx = api.tx.Balances.transfer_keep_alive({
+  dest: MultiAddress.Id("5FHneW46..."),
+  value: 1_000_000_000_000n, // 1 DOT (10 decimals)
+})
+
+// Sign and submit
+const result = await tx.signAndSubmit(signer)
+
+// Or sign and submit with status tracking
+tx.signSubmitAndWatch(signer).subscribe({
+  next: (event) => {
+    if (event.type === "finalized") {
+      console.log("Finalized in block:", event.block.hash)
+    }
+  },
+  error: (err) => console.error(err),
+})
+```
+
+## Signers
+
+```typescript
+// From a seed phrase (server-side only)
+import { sr25519CreateDerive } from "@polkadot-labs/hdkd"
+import { DEV_PHRASE, entropyToMiniSecret, mnemonicToEntropy } from "@polkadot-labs/hdkd-helpers"
+import { getPolkadotSigner } from "polkadot-api/signer"
+
+const entropy = mnemonicToEntropy(DEV_PHRASE)
+const miniSecret = entropyToMiniSecret(entropy)
+const derive = sr25519CreateDerive(miniSecret)
+const keyPair = derive("//Alice")
+const signer = getPolkadotSigner(keyPair.publicKey, "Sr25519", keyPair.sign)
+
+// From browser extension (client-side)
+import { connectInjectedExtension } from "polkadot-api/pjs-signer"
+
+const extensions = await connectInjectedExtension("polkadot-js")
+const accounts = extensions.getAccounts()
+const signer = accounts[0].polkadotSigner
+```
+
+## Constants and Runtime Calls
+
+```typescript
+// Read constants
+const existentialDeposit = await api.constants.Balances.ExistentialDeposit()
+
+// Runtime API calls
+const metadata = await api.apis.Metadata.metadata_versions()
+```
+
+## Type Patterns
+
+PAPI generates types from metadata. Common patterns:
+
+```typescript
+import { type SS58String } from "polkadot-api"
+import { MultiAddress } from "@polkadot-api/descriptors"
+
+// Addresses — use SS58String type
+const address: SS58String = "5GrwvaEF..."
+
+// Multi-address (used in most extrinsics)
+const dest = MultiAddress.Id(address)
+
+// Enums — use tagged union pattern
+import { dot } from "@polkadot-api/descriptors"
+// e.g., ProxyType.Any, ProxyType.Governance, etc.
+```
+
+## Error Handling
+
+```typescript
+import { InvalidTxError } from "polkadot-api"
+
+try {
+  const result = await tx.signAndSubmit(signer)
+  if (result.ok) {
+    console.log("Success:", result.events)
+  } else {
+    // Dispatch error from the runtime
+    console.error("Failed:", result.dispatchError)
+  }
+} catch (e) {
+  if (e instanceof InvalidTxError) {
+    // Transaction-level error (invalid, dropped, etc.)
+    console.error("TX error:", e.error)
+  }
+}
+```
+
+## Best Practices
+
+1. **Use light client in production** — Smoldot gives you trustless access without RPC centralization
+2. **Commit `.papi/descriptors/`** — These are your typed chain bindings, generated once and versioned
+3. **Use `BigInt` for balances** — All Polkadot balances are `u128`, represented as `bigint` in JS
+4. **Watch, don't poll** — Use `watchValue()` for reactive state instead of polling `getValue()`
+5. **Handle disconnections** — Light clients may temporarily lose sync; design UI for this
+6. **Never hardcode pallet/call indices** — PAPI handles this via metadata; use typed API always
+
+---
+
+# Substrate Pallet Development
+
+## When to Use
+
+Build a FRAME pallet when you need custom on-chain logic that runs as part of a parachain runtime. This is the most powerful and flexible option — you control storage, events, errors, calls, and hooks.
+
+## Prerequisites
+
+```bash
+# Install Rust + Wasm target
+curl --proto '=https' --tlsv1.2 -sSf https://sh.rustup.rs | sh
+rustup target add wasm32-unknown-unknown
+
+# Install pop-cli for scaffolding
+cargo install --locked pop-cli
+```
+
+## Scaffold a New Pallet
+
+```bash
+# Using pop-cli (recommended)
+pop new pallet my-pallet
+
+# Or manually in an existing runtime
+mkdir pallets/my-pallet/src
+```
+
+## Pallet Structure (FRAME Macros)
+
+The modern approach uses the unified `frame` crate. The legacy `#[frame_support::pallet]` still compiles but `#[frame::pallet]` is preferred for new code.
+
+```rust
+#![cfg_attr(not(feature = "std"), no_std)]
+
+pub use pallet::*;
+
+#[frame::pallet]
+pub mod pallet {
+    use frame::prelude::*;
+
+    #[pallet::pallet]
+    pub struct Pallet<T>(_);
+
+    /// Configuration trait — defines types this pallet depends on
+    #[pallet::config]
+    pub trait Config: frame_system::Config {
+        /// The overarching event type
+        type RuntimeEvent: From<Event<Self>> + IsType<<Self as frame_system::Config>::RuntimeEvent>;
+
+        /// Maximum length for a name
+        #[pallet::constant]
+        type MaxNameLength: Get<u32>;
+    }
+
+    /// Storage: use typed storage items
+    #[pallet::storage]
+    pub type Something<T: Config> = StorageValue<_, u32>;
+
+    #[pallet::storage]
+    pub type SomethingMap<T: Config> = StorageMap<
+        _,
+        Blake2_128Concat,  // Use Blake2_128Concat for user-controlled keys
+        T::AccountId,
+        BoundedVec<u8, T::MaxNameLength>,
+    >;
+
+    /// Events: always include relevant data for indexers
+    #[pallet::event]
+    #[pallet::generate_deposit(pub(super) fn deposit_event)]
+    pub enum Event<T: Config> {
+        /// Something was stored. [value, who]
+        SomethingStored { value: u32, who: T::AccountId },
+    }
+
+    /// Errors: be specific
+    #[pallet::error]
+    pub enum Error<T> {
+        /// Value was None when it should exist
+        NoneValue,
+        /// Overflow when incrementing
+        StorageOverflow,
+    }
+
+    /// Dispatchable calls
+    #[pallet::call]
+    impl<T: Config> Pallet<T> {
+        /// Store a value. Must have benchmarked weight.
+        #[pallet::call_index(0)]
+        #[pallet::weight(T::WeightInfo::do_something())]
+        pub fn do_something(origin: OriginFor<T>, value: u32) -> DispatchResult {
+            let who = ensure_signed(origin)?;
+            Something::<T>::put(value);
+            Self::deposit_event(Event::SomethingStored { value, who });
+            Ok(())
+        }
+    }
+}
+```
+
+## Storage Types
+
+| Type | Use Case | Key Hashing |
+|------|----------|-------------|
+| `StorageValue` | Single values | N/A |
+| `StorageMap` | Key-value mapping | `Blake2_128Concat` for user keys, `Twox64Concat` for system keys |
+| `StorageDoubleMap` | Two-key mapping | Same hashing rules |
+| `StorageNMap` | N-key mapping | Same hashing rules |
+| `CountedStorageMap` | Map with count tracking | Same hashing rules |
+
+**Important:** Always use `BoundedVec`, `BoundedBTreeMap`, etc. — never unbounded collections in storage. This prevents DoS attacks via storage bloat.
+
+## Benchmarking (Required)
+
+Every extrinsic MUST have benchmarked weights. Never use hardcoded weights in production.
+
+```rust
+#[benchmarks]
+mod benchmarks {
+    use super::*;
+
+    #[benchmark]
+    fn do_something() {
+        let value = 100u32;
+        let caller: T::AccountId = whitelisted_caller();
+
+        #[extrinsic_call]
+        _(RawOrigin::Signed(caller), value);
+
+        assert_eq!(Something::<T>::get(), Some(value));
+    }
+}
+```
+
+Run benchmarks:
+```bash
+# Generate weights
+./target/release/my-node benchmark pallet \
+    --chain dev \
+    --pallet pallet_my_pallet \
+    --extrinsic "*" \
+    --output pallets/my-pallet/src/weights.rs
+```
+
+## Storage Migrations
+
+Any change to storage layout requires a migration. Skipping this will brick your chain.
+
+The preferred modern pattern uses `VersionedMigration` + `UncheckedOnRuntimeUpgrade`, which handles version checking automatically:
+
+```rust
+pub mod v1 {
+    use super::*;
+
+    /// Inner migration logic — implement UncheckedOnRuntimeUpgrade (not OnRuntimeUpgrade)
+    pub struct InnerMigrateToV1<T>(PhantomData<T>);
+
+    impl<T: Config> UncheckedOnRuntimeUpgrade for InnerMigrateToV1<T> {
+        fn on_runtime_upgrade() -> Weight {
+            let count = OldStorage::<T>::drain().fold(0u64, |acc, (key, old_value)| {
+                let new_value = transform(old_value);
+                NewStorage::<T>::insert(key, new_value);
+                acc + 1
+            });
+            T::DbWeight::get().reads_writes(count, count + 1)
+        }
+
+        #[cfg(feature = "try-runtime")]
+        fn pre_upgrade() -> Result<Vec<u8>, DispatchError> {
+            let count = OldStorage::<T>::iter().count() as u32;
+            Ok(count.encode())
+        }
+
+        #[cfg(feature = "try-runtime")]
+        fn post_upgrade(state: Vec<u8>) -> Result<(), DispatchError> {
+            let old_count: u32 = Decode::decode(&mut &state[..]).expect("valid state");
+            let new_count = NewStorage::<T>::iter().count() as u32;
+            assert_eq!(old_count, new_count);
+            Ok(())
+        }
+    }
+
+    /// Wrap with VersionedMigration — handles version check + update automatically
+    pub type MigrateToV1<T> = VersionedMigration<
+        0,                    // From version
+        1,                    // To version
+        InnerMigrateToV1<T>,  // Inner migration
+        Pallet<T>,            // Pallet
+        <T as frame_system::Config>::DbWeight,
+    >;
+}
+```
+
+For large migrations that don't fit in a single block, use **multi-block migrations** via `pallet-migrations` and the `SteppedMigration` trait.
+
+## Hooks
+
+```rust
+#[pallet::hooks]
+impl<T: Config> Hooks<BlockNumberFor<T>> for Pallet<T> {
+    fn on_initialize(_n: BlockNumberFor<T>) -> Weight {
+        // Runs at start of every block. Return consumed weight.
+        Weight::zero()
+    }
+
+    fn on_finalize(_n: BlockNumberFor<T>) {
+        // Runs at end of every block. Cannot return errors.
+    }
+
+    fn offchain_worker(_n: BlockNumberFor<T>) {
+        // Runs after block import. Has access to offchain storage and HTTP.
+    }
+}
+```
+
+## Testing
+
+```rust
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use frame_support::{assert_ok, assert_noop};
+    use sp_io::TestExternalities;
+
+    // Build test externalities with mock runtime
+    fn new_test_ext() -> TestExternalities {
+        let t = frame_system::GenesisConfig::<Test>::default()
+            .build_storage()
+            .unwrap();
+        TestExternalities::new(t)
+    }
+
+    #[test]
+    fn it_works() {
+        new_test_ext().execute_with(|| {
+            assert_ok!(MyPallet::do_something(RuntimeOrigin::signed(1), 42));
+            assert_eq!(Something::<Test>::get(), Some(42));
+        });
+    }
+
+    #[test]
+    fn errors_correctly() {
+        new_test_ext().execute_with(|| {
+            assert_noop!(
+                MyPallet::fail_something(RuntimeOrigin::signed(1)),
+                Error::<Test>::NoneValue
+            );
+        });
+    }
+}
+```
+
+## Checklist Before Shipping
+
+- [ ] All storage items use bounded types
+- [ ] All extrinsics have benchmarked weights
+- [ ] Storage migrations written and tested with `try-runtime`
+- [ ] Events emitted for all state changes
+- [ ] Errors are specific and documented
+- [ ] Call indices are explicit (`#[pallet::call_index(N)]`)
+- [ ] Key hashing is appropriate (Blake2_128Concat for user-controlled keys)
+- [ ] No `panic!` or `unwrap()` in dispatchable calls — use `ensure!` and `?`
+- [ ] Use `#[frame::pallet(dev_mode)]` during prototyping (relaxes weight requirements), remove before production
+
+---
+
+# ink! Smart Contracts
+
+## When to Use
+
+Use ink! when you want to deploy smart contracts on Polkadot parachains that support the Contracts pallet (Astar, Aleph Zero, Phala, etc.). ink! compiles to Wasm and runs in a sandboxed environment.
+
+**Status note (Jan 2026):** The original ink! team discontinued active development. The **ink! Alliance** has secured Polkadot treasury funding to stabilize ink! v6 for PolkaVM (RISC-V). The current stable release is **ink! 5.1.1**; ink! v6.0.0-beta targets the new pallet-revive + PolkaVM architecture. This guide covers the stable v5 path.
+
+**Choose ink! over a pallet when:**
+- You want permissionless deployment (no runtime upgrade needed)
+- Your logic is application-specific, not chain-level
+- You need rapid iteration without governance approval
+
+## Prerequisites
+
+```bash
+# Install Rust
+curl --proto '=https' --tlsv1.2 -sSf https://sh.rustup.rs | sh
+
+# Install pop-cli (recommended over cargo-contract)
+cargo binstall pop-cli --locked
+# Or: cargo install --locked pop-cli
+
+# Or install cargo-contract directly
+cargo install cargo-contract --locked
+```
+
+## Scaffold a New Contract
+
+```bash
+# Using pop-cli (recommended)
+pop new contract my_contract
+
+# Using cargo-contract
+cargo contract new my_contract
+```
+
+## Contract Structure
+
+```rust
+#![cfg_attr(not(feature = "std"), no_std, no_main)]
+
+#[ink::contract]
+mod my_contract {
+    use ink::storage::Mapping;
+
+    /// Contract storage
+    #[ink(storage)]
+    pub struct MyContract {
+        /// A simple value
+        value: u32,
+        /// A mapping from account to balance
+        balances: Mapping<AccountId, Balance>,
+    }
+
+    /// Events
+    #[ink(event)]
+    pub struct ValueChanged {
+        #[ink(topic)]  // indexed for filtering
+        from: AccountId,
+        value: u32,
+    }
+
+    /// Errors
+    #[derive(Debug, PartialEq, Eq, scale::Encode, scale::Decode)]
+    #[cfg_attr(feature = "std", derive(scale_info::TypeInfo))]
+    pub enum Error {
+        /// Value overflow
+        Overflow,
+        /// Caller is not authorized
+        Unauthorized,
+        /// Insufficient balance
+        InsufficientBalance,
+    }
+
+    pub type Result<T> = core::result::Result<T, Error>;
+
+    impl MyContract {
+        /// Constructor — called once on deployment
+        #[ink(constructor)]
+        pub fn new(init_value: u32) -> Self {
+            Self {
+                value: init_value,
+                balances: Mapping::default(),
+            }
+        }
+
+        /// Default constructor
+        #[ink(constructor)]
+        pub fn default() -> Self {
+            Self::new(0)
+        }
+
+        /// Mutating message — changes state
+        #[ink(message)]
+        pub fn set_value(&mut self, new_value: u32) -> Result<()> {
+            let caller = self.env().caller();
+            self.value = new_value;
+            self.env().emit_event(ValueChanged {
+                from: caller,
+                value: new_value,
+            });
+            Ok(())
+        }
+
+        /// Non-mutating message — reads state (free, no gas)
+        #[ink(message)]
+        pub fn get_value(&self) -> u32 {
+            self.value
+        }
+
+        /// Payable message — accepts token transfers
+        #[ink(message, payable)]
+        pub fn deposit(&mut self) {
+            let caller = self.env().caller();
+            let amount = self.env().transferred_value();
+            let current = self.balances.get(caller).unwrap_or(0);
+            self.balances.insert(caller, &(current + amount));
+        }
+    }
+}
+```
+
+## Storage Types
+
+| Type | Use Case |
+|------|----------|
+| `ink::storage::Mapping<K, V>` | Key-value mapping (lazy-loaded) |
+| `Vec<T>` | Small, bounded collections only |
+| `ink::storage::Lazy<T>` | Large values loaded on demand |
+
+**Rules:**
+- Use `Mapping` for unbounded key-value data — it's lazy and efficient
+- Never use `Vec` for unbounded data — it loads entirely into memory
+- Use `Lazy` for large values that aren't always needed
+
+## Cross-Contract Calls
+
+```rust
+use other_contract::OtherContractRef;
+
+#[ink(storage)]
+pub struct MyContract {
+    other: OtherContractRef,
+}
+
+#[ink(message)]
+pub fn call_other(&self) -> u32 {
+    // Direct typed call
+    self.other.get_value()
+}
+
+#[ink(message)]
+pub fn call_other_with_gas(&self) -> u32 {
+    // With explicit gas limit
+    ink::env::call::build_call::<Environment>()
+        .call(self.other_address)
+        .exec_input(ink::env::call::ExecutionInput::new(
+            ink::env::call::Selector::new(ink::selector_bytes!("get_value"))
+        ))
+        .returns::<u32>()
+        .invoke()
+}
+```
+
+## PSP Standards (ink! token standards)
+
+| Standard | Purpose | Equivalent |
+|----------|---------|------------|
+| PSP22    | Fungible token | ERC-20 |
+| PSP34    | Non-fungible token | ERC-721 |
+| PSP37    | Multi-token | ERC-1155 |
+
+Use the `pendzl` library for standard implementations (successor to the legacy `openbrush`):
+
+```toml
+# Cargo.toml
+[dependencies]
+pendzl = { version = "1.0", default-features = false, features = ["psp22"] }
+```
+
+## Build and Deploy
+
+```bash
+# Build (produces .wasm + metadata.json)
+pop build
+
+# Or with cargo-contract
+cargo contract build --release
+
+# Deploy to local node
+pop up --suri //Alice
+
+# Deploy to testnet
+cargo contract instantiate \
+    --suri "your seed phrase" \
+    --url wss://rpc.shibuya.astar.network \
+    --constructor new \
+    --args 42
+```
+
+## Testing
+
+### Unit Tests (off-chain)
+
+```rust
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[ink::test]
+    fn default_works() {
+        let contract = MyContract::default();
+        assert_eq!(contract.get_value(), 0);
+    }
+
+    #[ink::test]
+    fn set_value_works() {
+        let mut contract = MyContract::new(0);
+        assert!(contract.set_value(42).is_ok());
+        assert_eq!(contract.get_value(), 42);
+    }
+
+    #[ink::test]
+    fn deposit_works() {
+        let mut contract = MyContract::default();
+        // Set caller and value
+        let accounts = ink::env::test::default_accounts::<Environment>();
+        ink::env::test::set_caller::<Environment>(accounts.alice);
+        ink::env::pay_with_call!(contract.deposit(), 1000);
+    }
+}
+```
+
+### E2E Tests (on-chain)
+
+```rust
+#[cfg(all(test, feature = "e2e-tests"))]
+mod e2e_tests {
+    use super::*;
+    use ink_e2e::ContractsBackend;
+
+    type E2EResult<T> = std::result::Result<T, Box<dyn std::error::Error>>;
+
+    #[ink_e2e::test]
+    async fn it_works<Client: E2EBackend>(mut client: Client) -> E2EResult<()> {
+        // Deploy
+        let mut constructor = MyContractRef::new(42);
+        let contract = client
+            .instantiate("my_contract", &ink_e2e::alice(), &mut constructor)
+            .submit()
+            .await
+            .expect("deploy failed");
+        let mut call_builder = contract.call_builder::<MyContract>();
+
+        // Call
+        let get = call_builder.get_value();
+        let result = client.call(&ink_e2e::alice(), &get).dry_run().await?;
+        assert_eq!(result.return_value(), 42);
+
+        Ok(())
+    }
+}
+```
+
+## Security Checklist
+
+- [ ] No unbounded iteration — use `Mapping` instead of `Vec` for collections
+- [ ] Reentrancy protection — use checks-effects-interactions pattern
+- [ ] Integer overflow — use `checked_*` arithmetic or Rust's default overflow checks
+- [ ] Access control — verify `self.env().caller()` for privileged operations
+- [ ] Don't trust `self.env().transferred_value()` without validation
+- [ ] Validate all constructor arguments
+- [ ] Test with malicious inputs (zero addresses, max values, empty strings)
+
+---
+
+# XCM — Cross-Consensus Messaging
+
+## What XCM Is
+
+XCM (Cross-Consensus Message Format) is Polkadot's universal language for cross-chain communication. It lets parachains, relay chains, and external consensus systems exchange messages — transfers, remote calls, governance actions.
+
+**Use XCM v5.** Earlier versions (v4 and below) are deprecated. XCM v5 shipped with Polkadot 2.0 in mid-2025.
+
+## Core Concepts
+
+### Locations (renamed from MultiLocation to Location in v4+)
+
+Everything in XCM is addressed by location, relative to the sender:
+
+```
+// Relay chain (from a parachain's perspective)
+Location { parents: 1, interior: Here }
+
+// Parachain 1000 (Asset Hub, from relay chain)
+Location { parents: 0, interior: X1(Parachain(1000)) }
+
+// An account on Asset Hub (from relay chain)
+Location {
+    parents: 0,
+    interior: X2(Parachain(1000), AccountId32 { id: [..], network: None })
+}
+
+// Native DOT (from any parachain)
+Location { parents: 1, interior: Here }
+
+// USDT on Asset Hub (from any parachain)
+Location {
+    parents: 1,
+    interior: X3(Parachain(1000), PalletInstance(50), GeneralIndex(1984))
+}
+```
+
+### Assets
+
+```rust
+// DOT from a parachain's view
+Asset {
+    id: AssetId(Location { parents: 1, interior: Here }),
+    fun: Fungible(1_000_000_000_000), // 1 DOT
+}
+
+// Multiple assets
+Assets::from(vec![
+    (Location::parent(), 1_000_000_000_000u128).into(), // 1 DOT
+])
+```
+
+### Instructions (Key Ones)
+
+| Instruction | Purpose |
+|-------------|---------|
+| `WithdrawAsset` | Take assets from the origin account into holding |
+| `DepositAsset` | Deposit assets to a beneficiary |
+| `BuyExecution` | Pay for XCM execution weight (legacy, still works) |
+| `PayFees` | **v5:** Improved fee payment — designate one asset for fees. Preferred over `BuyExecution` |
+| `TransferAsset` | Withdraw + Deposit in one step |
+| `InitiateTransfer` | **v5:** Unified cross-chain transfer (replaces `InitiateReserveWithdraw`/`InitiateTeleport`) |
+| `Transact` | Execute an encoded call on the remote chain |
+| `SetHints` | **v5:** Set metadata hints (e.g., `AssetClaimer` for trapped asset recovery) |
+| `ExpectAsset` | Assert holding contains expected assets |
+| `SetErrorHandler` | Define error recovery logic |
+| `ReportError` | Send execution outcome to a destination |
+
+## Common Patterns
+
+### 1. Teleport Assets (Trusted Chains Only)
+
+Used between relay chain <-> system parachains (Asset Hub, etc.)
+
+```typescript
+// From PAPI (TypeScript) — prefer transfer_assets (unified extrinsic)
+const tx = api.tx.XcmPallet.transfer_assets({
+    dest: XcmVersionedLocation.V5({
+        parents: 0,
+        interior: XcmV5Junctions.X1(XcmV5Junction.Parachain(1000)),
+    }),
+    beneficiary: XcmVersionedLocation.V5({
+        parents: 0,
+        interior: XcmV5Junctions.X1(
+            XcmV5Junction.AccountId32({ network: undefined, id: recipientBytes })
+        ),
+    }),
+    assets: XcmVersionedAssets.V5([{
+        id: { parents: 0, interior: XcmV5Junctions.Here() },
+        fun: XcmV5Fungibility.Fungible(amount),
+    }]),
+    fee_asset_item: 0,
+    weight_limit: XcmV5WeightLimit.Unlimited(),
+})
+```
+
+### 2. Reserve Transfer (Untrusted Chains)
+
+Used between parachains that don't trust each other directly.
+
+```rust
+let message = Xcm(vec![
+    WithdrawAsset(assets.clone()),
+    InitiateReserveWithdraw {
+        assets: Wild(All),
+        reserve: dest.clone(),
+        xcm: Xcm(vec![
+            BuyExecution { fees: fee_asset, weight_limit: Unlimited },
+            DepositAsset {
+                assets: Wild(All),
+                beneficiary: beneficiary.clone(),
+            },
+        ]),
+    },
+]);
+```
+
+### 3. Remote Transact (Execute Call on Another Chain)
+
+```rust
+let message = Xcm(vec![
+    WithdrawAsset(fee_assets),
+    BuyExecution { fees: fee_asset, weight_limit: Unlimited },
+    Transact {
+        origin_kind: OriginKind::SovereignAccount,
+        require_weight_at_most: Weight::from_parts(1_000_000_000, 64 * 1024),
+        call: encoded_call.into(),
+    },
+    ExpectTransactStatus(MaybeErrorCode::Success),
+    RefundSurplus,
+    DepositAsset {
+        assets: Wild(All),
+        beneficiary: sender_on_dest,
+    },
+]);
+```
+
+## XCM in Pallets (Sending from Runtime)
+
+```rust
+use xcm::latest::prelude::*; // resolves to v5
+use pallet_xcm::ensure_response_from;
+
+// Send XCM from your pallet
+let dest: Location = Location::new(1, [Parachain(1000)]);
+let message = Xcm(vec![
+    // ... instructions
+]);
+
+pallet_xcm::Pallet::<T>::send_xcm(Here, dest, message)
+    .map_err(|_| Error::<T>::XcmSendFailed)?;
+```
+
+## XCM Configuration (Runtime)
+
+```rust
+parameter_types! {
+    pub const RelayNetwork: Option<NetworkId> = Some(NetworkId::Polkadot);
+    pub RelayChainOrigin: RuntimeOrigin = cumulus_pallet_xcm::Origin::Relay.into();
+    pub UniversalLocation: InteriorLocation = [GlobalConsensus(RelayNetwork::get().unwrap()), Parachain(ParachainInfo::parachain_id().into())].into();
+}
+
+pub struct XcmConfig;
+impl xcm_executor::Config for XcmConfig {
+    type RuntimeCall = RuntimeCall;
+    type XcmSender = XcmRouter;
+    type AssetTransactor = LocalAssetTransactor;
+    type OriginConverter = XcmOriginToTransactDispatchOrigin;
+    type IsReserve = NativeAsset; // Which assets this chain is reserve for
+    type IsTeleporter = NativeAsset; // Which assets can be teleported
+    type Barrier = Barrier; // Which messages are allowed
+    type Weigher = FixedWeightBounds<UnitWeightCost, RuntimeCall, MaxInstructions>;
+    type Trader = UsingComponents<WeightToFee, RelayLocation, AccountId, Balances, ()>;
+    type TransactionalProcessor = FrameTransactionalProcessor; // Ensures atomic XCM execution
+    // ... more config (Aliasers, CallDispatcher, SafeCallFilter, etc.)
+}
+```
+
+## Testing XCM
+
+**Always test XCM flows end-to-end.** XCM bugs in production are extremely costly.
+
+### With Chopsticks (Fork-Based)
+
+```bash
+# Fork Polkadot + Asset Hub locally
+npx @acala-network/chopsticks xcm \
+    -r polkadot \
+    -p polkadot-asset-hub
+```
+
+### With Zombienet (Multi-Node)
+
+```toml
+# zombienet.toml
+[relaychain]
+chain = "paseo-local"
+default_command = "./target/release/polkadot"
+
+[[relaychain.nodes]]
+name = "alice"
+
+[[relaychain.nodes]]
+name = "bob"
+
+[[parachains]]
+id = 1000
+chain = "asset-hub-paseo-local"
+
+[[parachains.collators]]
+name = "asset-hub"
+command = "./target/release/polkadot-parachain"
+```
+
+```bash
+zombienet spawn zombienet.toml --provider native
+```
+
+## Common Mistakes
+
+1. **Not paying for execution** — Every XCM program on a remote chain must pay for execution via `PayFees` (v5) or `BuyExecution` (legacy)
+2. **Wrong weight limits** — Underestimating `require_weight_at_most` in `Transact` causes silent failures
+3. **Incorrect asset locations** — DOT is `Location::parent()` from a parachain, not `Here`
+4. **Forgetting RefundSurplus** — Always include `RefundSurplus` + `DepositAsset` after `Transact` to recover unused fees
+5. **Testing on wrong version** — Ensure your runtime's XCM config matches the version you're building messages for
+
+---
+
+# Agile Coretime
+
+## What It Is
+
+Agile Coretime replaced Polkadot's slot auctions. Blockspace is now a commodity you purchase — on-demand for burst usage, or in bulk for sustained throughput. The Broker pallet on the Coretime chain manages allocation.
+
+**Never reference "slot auctions" or "crowdloans" for new projects.** That system is deprecated.
+
+## Two Modes
+
+### On-Demand Coretime
+
+- Pay per block when you need it
+- Best for: low-traffic chains, testing, MVPs, intermittent workloads
+- No upfront commitment
+- Blocks are produced only when transactions exist
+
+### Bulk Coretime
+
+- Purchase a "core" for a fixed period (currently 28 days)
+- Best for: production parachains with consistent throughput needs
+- Can be split, shared, or resold on secondary markets
+- Purchased via the Broker pallet on the Coretime chain
+
+## Using On-Demand Coretime
+
+On-demand coretime requires explicit order placement. A parachain (or an account acting on its behalf) must submit an order extrinsic per block:
+
+- `OnDemandAssignmentProvider.placeOrderAllowDeath` — order, allow account to be reaped
+- `OnDemandAssignmentProvider.placeOrderKeepAlive` — order, keep account alive
+
+Blocks are produced only after an order is placed and a core is assigned.
+
+```typescript
+// Check on-demand pricing via PAPI
+const api = client.getTypedApi(coretimeDescriptors)
+const price = await api.query.OnDemandAssignmentProvider.SpotPrice.getValue()
+```
+
+## Purchasing Bulk Coretime
+
+### Via PAPI
+
+```typescript
+import { coretime } from "@polkadot-api/descriptors"
+
+const api = client.getTypedApi(coretime)
+
+// Purchase a core during a sale
+const tx = api.tx.Broker.purchase({
+    price_limit: 10_000_000_000_000n, // Max price willing to pay
+})
+await tx.signAndSubmit(signer)
+```
+
+### Core Operations
+
+```typescript
+// Partition a core into two regions at a time pivot
+const tx = api.tx.Broker.partition({
+    region_id: regionId,
+    pivot: 40, // Split at 40% of the region's time
+})
+
+// Assign a region to a parachain
+const tx = api.tx.Broker.assign({
+    region_id: regionId,
+    task: 2000, // ParaId
+    finality: "Final", // or "Provisional"
+})
+
+// Transfer a region to another account
+const tx = api.tx.Broker.transfer({
+    region_id: regionId,
+    new_owner: recipientAddress,
+})
+
+// Place a region on the secondary market (interlace)
+const tx = api.tx.Broker.interlace({
+    region_id: regionId,
+    pivot: CoreMask, // Which parts of the core to split
+})
+```
+
+## Sale Lifecycle
+
+1. **Interlude** — Renewals only (existing core holders get priority)
+2. **Leadin** — Price starts high, decreases linearly (Dutch auction)
+3. **Fixed Price** — After leadin, price stabilizes at the floor
+4. **Sale Ends** — Unsold cores go to on-demand pool
+
+```typescript
+// Query current sale status
+const saleInfo = await api.query.Broker.SaleInfo.getValue()
+// {
+//   saleStart: blockNumber,
+//   leadinLength: blocks,
+//   endPrice: bigint,
+//   regionBegin: timeslice,
+//   regionEnd: timeslice,
+//   coresOffered: number,
+//   coresSold: number,
+// }
+```
+
+## For JAM Preparation
+
+JAM (Join-Accumulate Machine) will extend the coretime model. Design your application with these principles:
+
+- **Stateless execution** — JAM services should not depend on persistent on-chain state during execution
+- **Work packages** — Think of your computation as discrete work packages that can be verified
+- **Core-agnostic** — Don't assume you'll always have the same core; design for dynamic allocation
+
+## Key Parameters
+
+| Parameter | Current Value | Note |
+|-----------|--------------|------|
+| Bulk period | 28 days | Region duration |
+| Timeslice | 80 blocks (~8 min) | Smallest unit of coretime |
+| Cores available | ~18-25 | Varies per sale |
+| On-demand price | Dynamic | Set by demand |
+
+## Common Patterns
+
+### MVP Launch (On-Demand)
+1. Register parachain with Polkadot
+2. Run collator with on-demand config
+3. Pay per block — ideal for testing product-market fit
+
+### Production Launch (Bulk)
+1. Purchase bulk core during sale
+2. Assign to your ParaId
+3. Renew each period during interlude phase (priority pricing)
+
+### Elastic Scaling
+1. Hold one bulk core for baseline
+2. Use on-demand for burst traffic
+3. Purchase additional cores during high-demand periods
+
+---
+
+# OpenGov — On-Chain Governance
+
+## What It Is
+
+Polkadot OpenGov is fully on-chain governance. Every parameter change, treasury spend, runtime upgrade, and system decision goes through governance tracks with different approval thresholds. There is no council, no sudo — only token-weighted voting with conviction.
+
+## Key Concepts
+
+### Tracks
+
+Each proposal type has a track with specific thresholds:
+
+| Track | Use Case | Max Spend | Decision Period |
+|-------|----------|-----------|----------------|
+| Root | Runtime upgrades, critical changes | Unlimited | 28 days |
+| Whitelisted Caller | Pre-approved technical calls | N/A | 28 days |
+| Staking Admin | Staking parameters | N/A | 28 days |
+| General Admin | General parameter changes | N/A | 28 days |
+| Referendum Canceller | Cancel ongoing referenda | N/A | 7 days |
+| Referendum Killer | Kill referenda, slash deposit | N/A | 28 days |
+| Treasurer | Large treasury spends | 10,000,000 DOT | 28 days |
+| Big Spender | Treasury spends | 10,000 DOT | 28 days |
+| Medium Spender | Treasury spends | 1,000 DOT | 28 days |
+| Small Spender | Treasury spends | 250 DOT | 28 days |
+| Big Tipper | Tips | 1,000 DOT | 7 days |
+| Small Tipper | Tips | 250 DOT | 7 days |
+
+**Note:** OpenGov does NOT use static "supermajority" or "simple majority" thresholds. Each track has **dynamic approval and support curves** that change over the decision period. Approval starts at ~100% and decreases toward 50%; support thresholds decrease over time at track-specific rates.
+
+### Conviction Voting
+
+Voters can lock tokens for longer to multiply their voting power:
+
+| Lock Period | Conviction Multiplier |
+|-------------|----------------------|
+| None (0)    | 0.1x                 |
+| 1 period    | 1x                   |
+| 2 periods   | 2x                   |
+| 4 periods   | 3x                   |
+| 8 periods   | 4x                   |
+| 16 periods  | 5x                   |
+| 32 periods  | 6x                   |
+
+### Lifecycle
+
+1. **Submission** — Proposal submitted with deposit
+2. **Decision Deposit** — Someone places decision deposit to start voting
+3. **Deciding** — Voting period begins
+4. **Confirmation** — If passing threshold met, confirmation period starts
+5. **Enacted** — Proposal executes after enactment period
+
+## Submitting Proposals via PAPI
+
+### Treasury Spend Proposal
+
+```typescript
+import { dot } from "@polkadot-api/descriptors"
+
+const api = client.getTypedApi(dot)
+
+// Preimage: the actual call to execute
+const spendCall = api.tx.Treasury.spend_local({
+    amount: 1_000_000_000_000_000n, // 1000 DOT
+    beneficiary: MultiAddress.Id(beneficiaryAddress),
+})
+
+// Submit preimage first
+const preimage = api.tx.Preimage.note_preimage({
+    bytes: spendCall.encodedData,
+})
+await preimage.signAndSubmit(signer)
+
+// Then submit referendum
+const referendum = api.tx.Referenda.submit({
+    proposal_origin: { system: "Origins", value: "MediumSpender" },
+    proposal: {
+        Lookup: {
+            hash: preimageHash,
+            len: preimageLen,
+        },
+    },
+    enactment_moment: { After: 100 }, // Enact 100 blocks after approval
+})
+await referendum.signAndSubmit(signer)
+
+// Place decision deposit
+const deposit = api.tx.Referenda.place_decision_deposit({
+    index: referendumIndex,
+})
+await deposit.signAndSubmit(signer)
+```
+
+### Voting
+
+```typescript
+// Vote Aye with 1x conviction
+const vote = api.tx.ConvictionVoting.vote({
+    poll_index: referendumIndex,
+    vote: {
+        Standard: {
+            vote: { aye: true, conviction: "Locked1x" },
+            balance: 100_000_000_000_000n, // 100 DOT
+        },
+    },
+})
+await vote.signAndSubmit(signer)
+
+// Delegate voting power
+const delegate = api.tx.ConvictionVoting.delegate({
+    class: trackId, // Track to delegate for
+    to: MultiAddress.Id(delegateAddress),
+    conviction: "Locked1x",
+    balance: 100_000_000_000_000n,
+})
+await delegate.signAndSubmit(signer)
+```
+
+### Query Referendum Status
+
+```typescript
+// Get referendum info
+const info = await api.query.Referenda.ReferendumInfoFor.getValue(referendumIndex)
+
+// Get all ongoing referenda
+const ongoing = await api.query.Referenda.ReferendumInfoFor.getEntries()
+const active = ongoing.filter(({ value }) => value.type === "Ongoing")
+
+// Watch a specific referendum (Observable pattern)
+api.query.Referenda.ReferendumInfoFor.watchValue(referendumIndex).subscribe((info) => {
+    if (info.type === "Ongoing") {
+        console.log("Ayes:", info.value.tally.ayes)
+        console.log("Nays:", info.value.tally.nays)
+    }
+})
+```
+
+## Agent-Relevant Governance Patterns
+
+### Governance Agent (Proposal Analyzer)
+
+```typescript
+// Fetch all active referenda and decode their preimages
+async function analyzeActiveReferenda(api) {
+    const referenda = await api.query.Referenda.ReferendumInfoFor.getEntries()
+
+    for (const { keyArgs: [index], value: info } of referenda) {
+        if (info.type !== "Ongoing") continue
+
+        const { proposal, tally, deciding } = info.value
+
+        // Decode the proposal preimage
+        if (proposal.type === "Lookup") {
+            const preimage = await api.query.Preimage.PreimageFor.getValue(
+                [proposal.value.hash, proposal.value.len]
+            )
+            // Decode and analyze the call
+        }
+
+        console.log(`Referendum #${index}: Ayes=${tally.ayes}, Nays=${tally.nays}`)
+    }
+}
+```
+
+### Delegation Agent
+
+```typescript
+// Auto-delegate to trusted addresses per track
+async function setupDelegation(api, signer, delegations: Record<number, string>) {
+    const txs = Object.entries(delegations).map(([track, delegate]) =>
+        api.tx.ConvictionVoting.delegate({
+            class: Number(track),
+            to: MultiAddress.Id(delegate),
+            conviction: "Locked1x",
+            balance: delegateBalance,
+        })
+    )
+
+    // Batch all delegations
+    const batch = api.tx.Utility.batch_all({ calls: txs.map(t => t.decodedCall) })
+    await batch.signAndSubmit(signer)
+}
+```
+
+## Best Practices
+
+1. **Always use preimages** — Submit the call as a preimage first, reference by hash in the referendum
+2. **Pick the right track** — Using a higher track than needed means stricter thresholds and longer periods
+3. **Decision deposits** — Someone must place a decision deposit for voting to begin; include this in your flow
+4. **Enactment delay** — Set appropriate delays; critical changes should have longer delays for safety
+5. **Test on Westend** — Westend has OpenGov with low stakes; test governance flows there first
+
+---
+
+# Testing on Polkadot
+
+## Testing Hierarchy
+
+| Level | Tool | Speed | Fidelity |
+|-------|------|-------|----------|
+| Unit tests | `#[test]` / `#[ink::test]` | Fast | Low |
+| Fork tests | Chopsticks | Medium | High |
+| Integration tests | Zombienet | Slow | Highest |
+| Migration tests | try-runtime | Medium | High |
+
+Always test at the lowest level that catches the bug. Escalate to higher fidelity only when needed.
+
+## Chopsticks — Fork-Based Testing
+
+Chopsticks forks a live chain locally. Use it for:
+- Testing extrinsics against real state
+- XCM testing between chains
+- Runtime upgrade dry-runs
+- Reproducing production bugs
+
+### Setup
+
+```bash
+npm install -g @acala-network/chopsticks
+```
+
+### Single Chain Fork
+
+```bash
+# Fork Polkadot at latest block
+chopsticks --config=polkadot
+
+# Fork at specific block
+chopsticks --config=polkadot --block 20000000
+
+# Fork with custom runtime (for testing upgrades)
+chopsticks --config=polkadot --wasm-override ./target/release/wbuild/polkadot-runtime/polkadot_runtime.wasm
+```
+
+### Multi-Chain XCM Testing
+
+```bash
+# Fork Polkadot + Asset Hub for XCM testing
+chopsticks xcm -r polkadot -p polkadot-asset-hub
+```
+
+### Config File
+
+```yaml
+# chopsticks.yml
+endpoint: wss://rpc.polkadot.io
+port: 8000
+block: null # latest
+db: ./db.sqlite
+
+# Override storage for testing
+import-storage:
+  System:
+    Account:
+      - - - "5GrwvaEF..."
+        - data:
+            free: "100000000000000000"
+  Sudo:
+    Key: "5GrwvaEF..."
+```
+
+### Chopsticks with TypeScript
+
+```typescript
+import { setupContext } from "@acala-network/chopsticks-testing"
+
+const context = await setupContext({
+  endpoint: "wss://rpc.polkadot.io",
+  blockNumber: 20000000,
+})
+
+// Impersonate any account
+await context.dev.setStorage({
+  System: {
+    Account: [
+      [["5GrwvaEF..."], { data: { free: "1000000000000000" } }],
+    ],
+  },
+})
+
+// Create new block
+await context.dev.newBlock()
+```
+
+## Zombienet — Multi-Node Integration
+
+Zombienet spawns real validator and collator networks. Use it for:
+- Full consensus testing
+- Parachain onboarding flows
+- XCM end-to-end with real message passing
+- Performance/stress testing
+
+### Setup
+
+```bash
+# Install
+npm install -g @zombienet/cli
+
+# Or download binary
+# https://github.com/paritytech/zombienet/releases
+```
+
+### Network Config
+
+```toml
+# zombienet.toml
+[settings]
+timeout = 600
+
+[relaychain]
+chain = "paseo-local"
+default_command = "./target/release/polkadot"
+default_args = ["-lparachain=debug"]
+
+[[relaychain.nodes]]
+name = "alice"
+validator = true
+
+[[relaychain.nodes]]
+name = "bob"
+validator = true
+
+[[parachains]]
+id = 1000
+chain = "asset-hub-paseo-local"
+
+[[parachains.collators]]
+name = "asset-hub-collator"
+command = "./target/release/polkadot-parachain"
+
+[[parachains]]
+id = 2000
+chain = "my-parachain-local"
+
+[[parachains.collators]]
+name = "my-collator"
+command = "./target/release/my-parachain-node"
+```
+
+### Run
+
+```bash
+zombienet spawn zombienet.toml --provider native
+
+# With tests
+zombienet test zombienet.toml zombienet-tests.zndsl
+```
+
+### Test DSL
+
+```
+# zombienet-tests.zndsl
+Description: Basic XCM test
+Network: ./zombienet.toml
+Creds: config
+
+alice: is up
+bob: is up
+asset-hub-collator: is up
+alice: parachain 1000 is registered within 120 seconds
+alice: parachain 2000 is registered within 120 seconds
+alice: parachain 1000 block height is at least 5 within 200 seconds
+```
+
+## try-runtime — Migration Testing
+
+Test runtime upgrades against real chain state without risking production.
+
+```bash
+# Test migration against live chain
+cargo build --release --features try-runtime
+
+./target/release/my-node try-runtime \
+    --runtime ./target/release/wbuild/my-runtime/my_runtime.wasm \
+    on-runtime-upgrade \
+    live --uri wss://rpc.polkadot.io
+```
+
+This executes:
+1. `pre_upgrade()` hooks
+2. The actual migration
+3. `post_upgrade()` hooks
+4. Reports weight usage and storage changes
+
+## Unit Testing Patterns
+
+### Pallet Tests
+
+```rust
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use frame_support::{assert_ok, assert_noop, parameter_types};
+    use sp_io::TestExternalities;
+    use sp_runtime::BuildStorage;
+
+    // Mock runtime
+    frame_support::construct_runtime!(
+        pub enum Test {
+            System: frame_system,
+            Balances: pallet_balances,
+            MyPallet: pallet_my_pallet,
+        }
+    );
+
+    // Configure mock runtime
+    parameter_types! {
+        pub const BlockHashCount: u64 = 250;
+        pub const ExistentialDeposit: u128 = 1;
+    }
+
+    impl frame_system::Config for Test {
+        type Block = frame_system::mocking::MockBlock<Test>;
+        // ... minimal config
+    }
+
+    impl pallet_balances::Config for Test {
+        type Balance = u128;
+        type ExistentialDeposit = ExistentialDeposit;
+        // ... minimal config
+    }
+
+    impl pallet_my_pallet::Config for Test {
+        type RuntimeEvent = RuntimeEvent;
+        // ... your config
+    }
+
+    fn new_test_ext() -> TestExternalities {
+        let mut t = frame_system::GenesisConfig::<Test>::default()
+            .build_storage()
+            .unwrap();
+
+        pallet_balances::GenesisConfig::<Test> {
+            balances: vec![(1, 1000), (2, 2000)],
+        }
+        .assimilate_storage(&mut t)
+        .unwrap();
+
+        TestExternalities::new(t)
+    }
+
+    #[test]
+    fn test_something() {
+        new_test_ext().execute_with(|| {
+            System::set_block_number(1);
+            assert_ok!(MyPallet::do_something(RuntimeOrigin::signed(1), 42));
+            System::assert_last_event(Event::SomethingStored { value: 42, who: 1 }.into());
+        });
+    }
+}
+```
+
+### ink! Contract Tests
+
+```rust
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[ink::test]
+    fn constructor_works() {
+        let contract = MyContract::new(42);
+        assert_eq!(contract.get_value(), 42);
+    }
+
+    #[ink::test]
+    fn set_value_works() {
+        let mut contract = MyContract::default();
+        assert!(contract.set_value(42).is_ok());
+        assert_eq!(contract.get_value(), 42);
+    }
+}
+```
+
+## Best Practices
+
+1. **Write unit tests first** — They're fast and catch most logic bugs
+2. **Use Chopsticks for XCM** — Fork both chains and test the full message flow
+3. **Always try-runtime before upgrading** — One migration bug can brick your chain
+4. **Zombienet for CI** — Run integration tests in CI before merging parachain changes
+5. **Test with real state** — Chopsticks lets you fork mainnet; use it to catch state-dependent bugs
+6. **Check events in tests** — Don't just check storage; verify correct events are emitted
+
+---
+
+# Polkadot Security Checklist
+
+## Substrate / Pallet Security
+
+### Storage
+
+- [ ] **All collections are bounded** — Use `BoundedVec`, `BoundedBTreeMap`, never unbounded `Vec` or `BTreeMap` in storage
+- [ ] **Correct key hashing** — `Blake2_128Concat` for user-controlled keys (prevents hash collision attacks), `Twox64Concat` only for system-controlled keys
+- [ ] **No storage bloat vectors** — Every storage write must be bounded; deposits required for user-created entries
+- [ ] **Storage deposits** — Charge deposits for storage created by user actions (similar to existential deposit)
+
+### Extrinsics
+
+- [ ] **Benchmarked weights** — Every dispatchable has weights from `#[benchmarks]`, never hardcoded
+- [ ] **No unbounded computation** — Loops must have known upper bounds; use pagination for large iterations
+- [ ] **Origin checks** — Every extrinsic verifies origin (`ensure_signed`, `ensure_root`, custom origins)
+- [ ] **No panics** — No `unwrap()`, `expect()`, or `panic!()` in dispatchable calls; use `ensure!()` and `?`
+- [ ] **Saturating/checked arithmetic** — Use `.saturating_add()`, `.checked_mul()`, never raw `+` / `*` on balances
+- [ ] **Transactional safety** — State changes revert on error (FRAME does this by default; verify for manual storage writes)
+
+### Economic Security
+
+- [ ] **Deposit requirements** — Permissionless actions (creating accounts, storing data) require deposits
+- [ ] **Fee alignment** — Extrinsic fees proportional to computational cost; no underpriced heavy operations
+- [ ] **Slashing conditions** — Bad actors lose stake; slashing conditions are clear and tested
+- [ ] **No free state mutation** — Every state change costs the caller (weight fees, deposits, or both)
+
+### Migrations
+
+- [ ] **try-runtime tested** — All migrations tested against live state with `pre_upgrade` / `post_upgrade`
+- [ ] **Versioned** — Migrations check and update `StorageVersion`; idempotent if run twice
+- [ ] **Weight budget** — Migration weight fits within a single block; use multi-block migrations for large state changes
+- [ ] **Rollback plan** — Know what happens if migration fails mid-way
+
+## ink! Contract Security
+
+### Reentrancy
+
+- [ ] **Checks-effects-interactions** — Update state before making external calls
+- [ ] **No cross-contract callbacks that modify state** — Or use reentrancy guards
+
+```rust
+// BAD: state change after external call
+#[ink(message)]
+pub fn withdraw(&mut self, amount: Balance) {
+    self.transfer(caller, amount); // external call
+    self.balances.insert(caller, &0); // state change AFTER call
+}
+
+// GOOD: state change before external call
+#[ink(message)]
+pub fn withdraw(&mut self, amount: Balance) {
+    let balance = self.balances.get(caller).unwrap_or(0);
+    ensure!(balance >= amount, Error::InsufficientBalance);
+    self.balances.insert(caller, &(balance - amount)); // state change FIRST
+    self.transfer(caller, amount); // then external call
+}
+```
+
+### Input Validation
+
+- [ ] **Validate all inputs** — Don't trust caller-provided data
+- [ ] **Zero-address checks** — Reject AccountId(0) where inappropriate
+- [ ] **Bounds checking** — Validate array indices, amounts, percentages
+- [ ] **Integer overflow** — Use `checked_*` methods for arithmetic on user inputs
+
+### Access Control
+
+- [ ] **Owner/admin patterns** — Critical functions gated by ownership checks
+- [ ] **No hardcoded accounts** — Admin addresses configurable, not compiled in
+- [ ] **Upgradability considered** — If contract is upgradeable, upgrade path is secure (proxy pattern)
+
+## XCM Security
+
+- [ ] **Barrier configured** — Only allow expected message types from expected origins
+- [ ] **Weight limits set** — `Transact` calls specify realistic `require_weight_at_most`
+- [ ] **Asset filters explicit** — Don't use `Wild(All)` in production barriers; specify exact assets
+- [ ] **Reserve/teleport trust** — Only trust chains you've verified as reserves; misconfigured trust = loss of funds
+- [ ] **Error handlers** — Include `SetErrorHandler` and `ReportError` for diagnosing failures
+- [ ] **Fee payment** — Ensure `PayFees` (v5) or `BuyExecution` (legacy) uses adequate fees; underpayment = dropped message
+- [ ] **Empowered Origins (v5)** — Review barriers for new XCM v5 origin types that can execute privileged operations cross-chain
+- [ ] **Snowbridge V2** — If interacting with Ethereum via Snowbridge, validate bridge message origins and asset configurations
+
+```rust
+// BAD: Overly permissive barrier
+pub type Barrier = AllowUnpaidExecutionFrom<Everything>;
+
+// GOOD: Specific barriers
+pub type Barrier = (
+    TakeWeightCredit,
+    AllowTopLevelPaidExecutionFrom<Everything>,
+    AllowKnownQueryResponses<XcmPallet>,
+    AllowSubscriptionsFrom<ParentOrSiblings>,
+);
+```
+
+## Client-Side (PAPI / Frontend) Security
+
+- [ ] **Validate chain metadata** — Ensure you're connected to the expected chain (check genesis hash)
+- [ ] **Light client for trust** — Use Smoldot in production to avoid trusting centralized RPC nodes
+- [ ] **Signer isolation** — Never expose private keys in frontend code; use extension signers
+- [ ] **Transaction simulation** — Dry-run transactions before signing to catch errors early
+- [ ] **No hardcoded indices** — Use typed PAPI descriptors, never hardcode pallet/call indices
+
+## Operational Security
+
+- [ ] **No sudo in production** — Use OpenGov for all privileged operations
+- [ ] **Monitoring** — Monitor chain events for unexpected state changes
+- [ ] **Upgrade process** — Runtime upgrades go through governance with adequate voting periods
+- [ ] **Key management** — Validator and collator keys rotated regularly; session keys separate from stash
+- [ ] **RPC exposure** — Production RPCs behind rate limiting; never expose unsafe RPC methods
+
+## Common Vulnerability Patterns
+
+| Vulnerability | Impact | Prevention |
+|--------------|--------|------------|
+| Unbounded iteration | DoS via weight exhaustion | Bound all loops, paginate |
+| Missing origin check | Unauthorized access | Always check origin |
+| Arithmetic overflow | Incorrect balances | Saturating/checked math |
+| Storage bloat | Chain bloat, economic attack | Require deposits |
+| XCM barrier bypass | Unauthorized cross-chain calls | Specific barrier config |
+| Reentrancy (ink!) | Drained funds | Checks-effects-interactions |
+| Migration failure | Bricked chain | try-runtime testing |
+| Hardcoded keys | Single point of failure | Configurable via genesis/gov |
+
+---
+
+# Frontend Framework Kit — React/Next.js + PAPI
+
+## Stack
+
+| Layer | Choice |
+|-------|--------|
+| Framework | Next.js (App Router) |
+| Chain client | PAPI (`polkadot-api`) |
+| Light client | Smoldot (via PAPI) |
+| Wallet connect | PAPI PJS signer / WalletConnect |
+| Styling | Your choice (Tailwind, CSS modules, etc.) |
+
+## Project Setup
+
+```bash
+# Create Next.js app
+npx create-next-app@latest my-polkadot-app --typescript --tailwind --app
+
+cd my-polkadot-app
+
+# Install PAPI
+npm install polkadot-api
+
+# Generate chain descriptors
+npx papi add dot -n polkadot
+npx papi add ah -n polkadot_asset_hub
+
+# Commit generated descriptors
+git add .papi/
+```
+
+## Chain Provider Pattern
+
+Create a provider that initializes the client once and shares it across the app.
+
+```typescript
+// providers/polkadot-provider.tsx
+"use client"
+
+import { createClient, TypedApi } from "polkadot-api"
+import { getSmProvider } from "polkadot-api/sm-provider"
+import { startFromWorker } from "polkadot-api/smoldot/from-worker"
+import { chainSpec } from "polkadot-api/chains/polkadot"
+import { dot } from "@polkadot-api/descriptors"
+import { createContext, useContext, useEffect, useState, ReactNode } from "react"
+
+type PolkadotContextType = {
+  api: TypedApi<typeof dot> | null
+  isReady: boolean
+}
+
+const PolkadotContext = createContext<PolkadotContextType>({
+  api: null,
+  isReady: false,
+})
+
+export function PolkadotProvider({ children }: { children: ReactNode }) {
+  const [api, setApi] = useState<TypedApi<typeof dot> | null>(null)
+  const [isReady, setIsReady] = useState(false)
+
+  useEffect(() => {
+    let cancelled = false
+
+    async function init() {
+      const smoldot = startFromWorker(
+        new Worker(new URL("polkadot-api/smoldot/worker", import.meta.url))
+      )
+      const chain = await smoldot.addChain({ chainSpec })
+      const client = createClient(getSmProvider(chain))
+      const typedApi = client.getTypedApi(dot)
+
+      if (!cancelled) {
+        setApi(typedApi)
+        setIsReady(true)
+      }
+    }
+
+    init()
+    return () => { cancelled = true }
+  }, [])
+
+  return (
+    <PolkadotContext.Provider value={{ api, isReady }}>
+      {children}
+    </PolkadotContext.Provider>
+  )
+}
+
+export function usePolkadot() {
+  return useContext(PolkadotContext)
+}
+```
+
+## Wallet Connection
+
+```typescript
+// hooks/useWallet.ts
+"use client"
+
+import { connectInjectedExtension } from "polkadot-api/pjs-signer"
+import { useState, useCallback } from "react"
+import type { InjectedPolkadotAccount } from "polkadot-api/pjs-signer"
+
+export function useWallet() {
+  const [accounts, setAccounts] = useState<InjectedPolkadotAccount[]>([])
+  const [selectedAccount, setSelectedAccount] = useState<InjectedPolkadotAccount | null>(null)
+
+  const connect = useCallback(async () => {
+    const extension = await connectInjectedExtension("polkadot-js")
+    const accts = extension.getAccounts()
+    setAccounts(accts)
+    if (accts.length > 0) setSelectedAccount(accts[0])
+  }, [])
+
+  return {
+    accounts,
+    selectedAccount,
+    setSelectedAccount,
+    connect,
+    signer: selectedAccount?.polkadotSigner ?? null,
+  }
+}
+```
+
+## Reading Chain State
+
+```typescript
+// hooks/useBalance.ts
+"use client"
+
+import { usePolkadot } from "@/providers/polkadot-provider"
+import { useState, useEffect } from "react"
+import type { SS58String } from "polkadot-api"
+
+export function useBalance(address: SS58String | null) {
+  const { api, isReady } = usePolkadot()
+  const [balance, setBalance] = useState<bigint>(0n)
+
+  useEffect(() => {
+    if (!api || !isReady || !address) return
+
+    const subscription = api.query.System.Account.watchValue(address).subscribe((account) => {
+      setBalance(account.data.free)
+    })
+
+    return () => { subscription.unsubscribe() }
+  }, [api, isReady, address])
+
+  return balance
+}
+```
+
+## Submitting Transactions
+
+```typescript
+// hooks/useTransfer.ts
+"use client"
+
+import { usePolkadot } from "@/providers/polkadot-provider"
+import { useWallet } from "@/hooks/useWallet"
+import { MultiAddress } from "@polkadot-api/descriptors"
+import { useState } from "react"
+
+export function useTransfer() {
+  const { api } = usePolkadot()
+  const { signer } = useWallet()
+  const [status, setStatus] = useState<string>("idle")
+
+  async function transfer(to: string, amount: bigint) {
+    if (!api || !signer) return
+
+    setStatus("signing")
+
+    const tx = api.tx.Balances.transfer_keep_alive({
+      dest: MultiAddress.Id(to),
+      value: amount,
+    })
+
+    try {
+      tx.signSubmitAndWatch(signer).subscribe({
+        next: (event) => {
+          setStatus(event.type)
+          if (event.type === "finalized") {
+            setStatus("confirmed")
+          }
+        },
+        error: (err) => setStatus(`error: ${err.message}`),
+      })
+    } catch (err) {
+      setStatus("failed")
+    }
+  }
+
+  return { transfer, status }
+}
+```
+
+## Display Patterns
+
+### Format DOT Balances
+
+```typescript
+// utils/format.ts
+export function formatDOT(planck: bigint): string {
+  const dot = Number(planck) / 1e10
+  return new Intl.NumberFormat("en-US", {
+    minimumFractionDigits: 2,
+    maximumFractionDigits: 4,
+  }).format(dot)
+}
+
+// DOT has 10 decimal places
+// 1 DOT = 10_000_000_000 planck
+export function dotToPlanck(dot: number): bigint {
+  return BigInt(Math.round(dot * 1e10))
+}
+```
+
+### Address Display
+
+```typescript
+export function shortAddress(address: string): string {
+  return `${address.slice(0, 6)}...${address.slice(-6)}`
+}
+```
+
+## App Layout
+
+```typescript
+// app/layout.tsx
+import { PolkadotProvider } from "@/providers/polkadot-provider"
+
+export default function RootLayout({ children }: { children: React.ReactNode }) {
+  return (
+    <html lang="en">
+      <body>
+        <PolkadotProvider>
+          {children}
+        </PolkadotProvider>
+      </body>
+    </html>
+  )
+}
+```
+
+## Best Practices
+
+1. **Use Smoldot in production** — Light client = no centralized RPC dependency
+2. **WebSocket for dev only** — `getWsProvider` is faster to connect but centralized
+3. **Watch, don't poll** — Use `watchValue` for reactive UI updates
+4. **BigInt for all balances** — Never convert to `number` for arithmetic; only for display
+5. **Handle loading states** — Light client sync takes a few seconds; show a loading indicator
+6. **Commit `.papi/descriptors/`** — These are generated types; version them like any other code
+7. **SSR considerations** — PAPI client initialization uses Web Workers; wrap in `"use client"` components
+
+---
+
+# polkadot.js Compatibility Layer
+
+## Status: Maintenance Mode
+
+`@polkadot/api` is in maintenance mode. **Do not use it for new projects.** Use [PAPI](papi-client.md) instead.
+
+Use polkadot.js only when:
+- Integrating with existing codebases that already use it
+- Using libraries that require `@polkadot/api` types (some DeFi SDKs)
+- Interacting with tools that haven't migrated yet
+
+## Compatibility Pattern
+
+When you must use polkadot.js, isolate it at boundaries. Never let polkadot.js types leak into your core application logic.
+
+```typescript
+// adapters/polkadotjs.ts — Boundary layer
+import { ApiPromise, WsProvider } from "@polkadot/api"
+import type { AccountInfo } from "your-app/types"
+
+export async function getAccountInfo(address: string): Promise<AccountInfo> {
+  const provider = new WsProvider("wss://rpc.polkadot.io")
+  const api = await ApiPromise.create({ provider })
+
+  const account = await api.query.system.account(address)
+
+  // Convert to your app's types at the boundary
+  return {
+    free: account.data.free.toBigInt(),
+    reserved: account.data.reserved.toBigInt(),
+    nonce: account.nonce.toNumber(),
+  }
+}
+```
+
+## Quick Reference (polkadot.js)
+
+### Connect
+
+```typescript
+import { ApiPromise, WsProvider } from "@polkadot/api"
+
+const provider = new WsProvider("wss://rpc.polkadot.io")
+const api = await ApiPromise.create({ provider })
+```
+
+### Read Storage
+
+```typescript
+// Single value
+const totalIssuance = await api.query.balances.totalIssuance()
+
+// Map entry
+const account = await api.query.system.account("5GrwvaEF...")
+
+// Subscribe
+const unsub = await api.query.system.account("5GrwvaEF...", (account) => {
+  console.log("Balance:", account.data.free.toHuman())
+})
+```
+
+### Submit Transaction
+
+```typescript
+import { Keyring } from "@polkadot/keyring"
+
+const keyring = new Keyring({ type: "sr25519" })
+const alice = keyring.addFromUri("//Alice")
+
+const hash = await api.tx.balances
+  .transferKeepAlive("5FHneW46...", 1_000_000_000_000n)
+  .signAndSend(alice)
+```
+
+## Migration Checklist (polkadot.js -> PAPI)
+
+| polkadot.js | PAPI |
+|-------------|------|
+| `ApiPromise.create()` | `createClient()` + `getTypedApi()` |
+| `api.query.system.account()` | `api.query.System.Account.getValue()` |
+| `api.tx.balances.transfer()` | `api.tx.Balances.transfer_keep_alive()` |
+| `WsProvider` | `getWsProvider()` or Smoldot |
+| `Keyring` | `getPolkadotSigner()` with hdkd |
+| `.toBigInt()` / `.toNumber()` | Native bigint / number (already typed) |
+| `api.consts.balances.existentialDeposit` | `api.constants.Balances.ExistentialDeposit()` |
+
+Key differences:
+- PAPI uses **PascalCase** for pallet names: `Balances`, `System` (not `balances`, `system`)
+- PAPI returns **native JS types** — no `.toHuman()`, `.toBigInt()` wrappers
+- PAPI generates types from metadata — full autocomplete, no `any`
+
+---
+
+# Resources — Curated Links
+
+## Official Documentation
+
+| Resource | URL | Use When |
+|----------|-----|----------|
+| Polkadot Wiki | https://wiki.polkadot.network | General Polkadot concepts, governance, staking |
+| Polkadot Developer Docs | https://docs.polkadot.com | Pallet development, runtime configuration |
+| PAPI Docs | https://papi.how | Client SDK reference, tutorials |
+| ink! Docs | https://use.ink | Smart contract development |
+| XCM Docs | https://paritytech.github.io/xcm-docs | Cross-chain messaging |
+| Polkadot-SDK | https://github.com/paritytech/polkadot-sdk | Source of truth for all runtime code |
+
+## Tools
+
+| Tool | Purpose | Install |
+|------|---------|---------|
+| `pop-cli` | Scaffold projects, build contracts, deploy | `cargo install --locked pop-cli` |
+| `subxt` | Rust client for Substrate chains | `cargo install subxt-cli` |
+| Chopsticks | Fork-based chain testing | `npm i -g @acala-network/chopsticks` |
+| Zombienet | Multi-node test networks | `npm i -g @zombienet/cli` |
+| Subscan | Block explorer | https://polkadot.subscan.io |
+| Polkadot.js Apps | Chain interaction UI | https://polkadot.js.org/apps |
+| Subsquare | Governance UI | https://polkadot.subsquare.io |
+
+## Chain RPCs
+
+| Chain | WebSocket | Use |
+|-------|-----------|-----|
+| Polkadot | `wss://rpc.polkadot.io` | Production relay chain |
+| Kusama | `wss://kusama-rpc.polkadot.io` | Canary network |
+| Westend | `wss://westend-rpc.polkadot.io` | Testnet (free tokens) |
+| Asset Hub (Polkadot) | `wss://polkadot-asset-hub-rpc.polkadot.io` | System parachain for assets |
+| Asset Hub (Westend) | `wss://westend-asset-hub-rpc.polkadot.io` | Testnet Asset Hub |
+
+**Prefer Smoldot light client over RPC for production dApps.**
+
+## Key Repositories
+
+| Repo | What's Inside |
+|------|--------------|
+| `paritytech/polkadot-sdk` | Substrate, FRAME, Cumulus, XCM — the whole stack |
+| `polkadot-api/polkadot-api` | PAPI — the modern TypeScript client |
+| `paritytech/zombienet` | Integration testing framework |
+| `AcalaNetwork/chopsticks` | Fork-based testing |
+| `use-ink/ink` | ink! smart contract language |
+| `paritytech/subxt` | Rust client library |
+| `smol-dot/smoldot` | Light client implementation |
+| `paritytech/xcm-docs` | XCM documentation and examples |
+| `polkadot-fellows/runtimes` | System chain runtimes |
+
+## Learning Path
+
+### Beginner
+1. Read Polkadot Wiki — understand relay chain, parachains, consensus
+2. Set up a local dev chain with `pop new parachain`
+3. Build a simple pallet with storage + events
+4. Connect to it with PAPI
+
+### Intermediate
+5. Write ink! contracts and deploy to a testnet
+6. Implement XCM transfers between two local chains (Zombienet)
+7. Build a React dApp with wallet connection
+8. Submit a governance proposal on Westend
+
+### Advanced
+9. Implement custom XCM instructions
+10. Build a coretime-powered Agent Space
+11. Contribute to Polkadot SDK
+12. Prepare for JAM integration
+
+## Testnet Faucets
+
+| Network | Faucet |
+|---------|--------|
+| Westend | https://faucet.polkadot.io/westend |
+| Rococo | https://faucet.polkadot.io/rococo |
+| Paseo | https://faucet.polkadot.io/paseo |
+
+## Community
+
+| Platform | Link |
+|----------|------|
+| Polkadot Forum | https://forum.polkadot.network |
+| Substrate Stack Exchange | https://substrate.stackexchange.com |
+| Polkadot Discord | https://dot.li/discord |
+| Element (Matrix) | https://matrix.to/#/#polkadot-watercooler:parity.io |
+
+---
+
+# Polkadot Agent Mesh — Proposal
+
+## What Ethereum Is Doing (and Where They're Weak)
+
+The EF strategy has 3 pillars:
+
+1. **ERC-8004** — on-chain registries for agent identity (NFT-based handles), reputation (feedback signals), and validation (cryptographic proofs)
+2. **Coordination layer** — agents discover each other, route payments, verify outcomes. Heavy compute stays off-chain
+3. **"Props AI"** — privacy, censorship resistance, security for agents (device-local processing, key-based auth over human-based auth)
+
+**Their gap:** Ethereum is a single execution environment. Agents all share one congested chain (or fragment across L2s with no native coordination). There's no concept of isolated execution domains with custom rules — every agent plays by the same global rules.
+
+## Why Polkadot Is Architecturally Superior for This
+
+Polkadot already has what Ethereum is trying to retrofit:
+
+| Capability                    | Ethereum             | Polkadot                |
+| ----------------------------- | -------------------- | ----------------------- |
+| Isolated execution domains    | No (L2 fragmentation) | Yes — Parachains / Coretime |
+| Custom rule sets per domain   | No (one EVM)          | Yes — Per-parachain runtime |
+| Native cross-domain messaging | No (bridges)          | Yes — XCM                   |
+| On-chain governance           | No (off-chain)        | Yes — OpenGov               |
+| Flexible compute allocation   | No                    | Yes — Agile Coretime        |
+| Proof-of-Personhood           | No                    | Yes — Gavin's active bet    |
+
+**The pitch:** Ethereum can be a trust layer. Polkadot can be a **trust ecosystem** — where each community, DAO, or industry vertical gets its own agent execution environment with custom rules, native interop, and shared security.
+
+## The Product: "Agent Spaces"
+
+**Concept:** Dedicated blockspaces (parachains or coretime allocations) purpose-built for agent-to-agent economies, each with governance-defined rules.
+
+### Three Tiers
+
+#### 1. Agent Registry Chain (system parachain)
+
+- Polkadot-native agent identity standard (**PRC-8004**, inspired by ERC-8004)
+- Identity registry, reputation registry, validation registry
+- XCM-accessible from any parachain
+- Proof-of-Personhood integration (Gavin's work) to distinguish human-controlled vs autonomous agents
+
+#### 2. Agent Spaces (coretime-powered)
+
+- Any DAO, community, or enterprise can spin up an "Agent Space" via coretime
+- Custom rules: who can register agents, fee structures, dispute resolution, allowed operations
+- Examples:
+  - **DeFi Agent Space** — agents that trade, lend, rebalance. Rules: max position sizes, circuit breakers, slashing for bad actors
+  - **Governance Agent Space** — delegate voting, proposal analysis. Rules: identity-verified only, human-override mandatory
+  - **Supply Chain Agent Space** — procurement, logistics. Rules: KYB-verified companies only, SLA enforcement
+  - **Creative Agent Space** — content creation, licensing. Rules: attribution enforcement, royalty distribution
+
+#### 3. Agent XCM Protocol (cross-space communication)
+
+- Extend XCM for agent-to-agent messages (task delegation, payment routing, reputation queries)
+- Agents in one space can hire agents in another space, with escrow and verification
+- This is the "Google Reviews + payment rails" Crapis described, but natively cross-chain
+
+## Why Gavin / Parity Would Back This
+
+- **JAM alignment** — Agent Spaces are a killer use case for JAM's "decentralized supercomputer" vision
+- **Coretime revenue** — every Agent Space = coretime demand
+- **Proof-of-Personhood synergy** — Gavin's PoP research gets a concrete product use case (human vs agent distinction)
+- **Narrative win** — positions Polkadot as the "agent-native" chain vs Ethereum's "agent-compatible" chain
+
+## Competitive Framing
+
+> "Ethereum gives agents a shared apartment. Polkadot gives them a city — with neighborhoods, local laws, and a transit system."
+
+## Next Steps
+
+- [ ] Define PRC-8004 spec (Polkadot-native agent identity standard)
+- [ ] Design Agent XCM message format extensions
+- [ ] Prototype Agent Registry Chain runtime (Substrate)
+- [ ] Build reference Agent Space (DeFi or Governance)
+- [ ] Draft governance proposal for system parachain status
+- [ ] Outreach to Parity / W3F for alignment on JAM integration
+
+---
+
