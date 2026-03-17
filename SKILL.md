@@ -28,6 +28,7 @@ When a user asks you to build something on Polkadot, follow this sequence:
 | Build a dApp frontend    | [frontend-framework-kit.md](frontend-framework-kit.md) |
 | Connect to chain / read state | [papi-client.md](papi-client.md)      |
 | Use legacy polkadot.js   | [polkadotjs-compat.md](polkadotjs-compat.md) |
+| Build mobile/Flutter dApp | [polkadart.md](polkadart.md)                |
 | Write a smart contract   | [ink-contracts.md](ink-contracts.md)       |
 | Build a pallet / runtime | [substrate-pallets.md](substrate-pallets.md) |
 | Send cross-chain messages | [xcm.md](xcm.md)                          |

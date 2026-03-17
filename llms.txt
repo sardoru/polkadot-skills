@@ -19,6 +19,7 @@ This repository also contains an Agent Spaces proposal: coretime-powered blocksp
 - [Security](https://raw.githubusercontent.com/sardoru/polkadot-skills/main/security.md): Security checklist. Substrate storage, extrinsic, and economic security. ink! reentrancy. XCM barriers and v5 Empowered Origins. Client-side and operational security.
 - [Frontend Kit](https://raw.githubusercontent.com/sardoru/polkadot-skills/main/frontend-framework-kit.md): React/Next.js + PAPI. Chain provider pattern, wallet connection, Observable balance hooks, transaction submission, DOT formatting.
 - [polkadot.js Compat](https://raw.githubusercontent.com/sardoru/polkadot-skills/main/polkadotjs-compat.md): Legacy polkadot.js compatibility. Boundary pattern: wrap at edges, never spread through codebase. Migration checklist to PAPI.
+- [Polkadart](https://raw.githubusercontent.com/sardoru/polkadot-skills/main/polkadart.md): Dart/Flutter SDK for Polkadot mobile development. Type generation via polkadart_cli, cross-platform (iOS, Android, Web, desktop), full crypto suite, ink! smart contracts.
 - [Resources](https://raw.githubusercontent.com/sardoru/polkadot-skills/main/resources.md): Curated links. Official docs, tools, RPCs, key repositories, learning path, testnet faucets, community channels.
 
 ## Architecture
