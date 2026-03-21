@@ -64,6 +64,16 @@
           "name": "Resources",
           "url": "https://raw.githubusercontent.com/sardoru/polkadot-skills/main/resources.md",
           "topics": ["documentation", "tools", "rpcs", "repositories", "faucets", "community"]
+        },
+        {
+          "name": "Dedot Client SDK",
+          "url": "https://raw.githubusercontent.com/sardoru/polkadot-skills/main/dedot.md",
+          "topics": ["dedot", "javascript", "typescript", "light-client", "smoldot", "chaintypes", "tree-shakable"]
+        },
+        {
+          "name": "Polkadart (Dart/Flutter SDK)",
+          "url": "https://raw.githubusercontent.com/sardoru/polkadot-skills/main/polkadart.md",
+          "topics": ["dart", "flutter", "mobile", "cross-platform", "polkadart", "type-generation", "keyring"]
         }
       ]
     }
