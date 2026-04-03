@@ -41,6 +41,7 @@ Read the sub-document that matches your task:
 | Build a dApp frontend | [frontend-framework-kit.md](frontend-framework-kit.md) |
 | Connect to a chain / read state | [papi-client.md](papi-client.md) |
 | Use legacy polkadot.js | [polkadotjs-compat.md](polkadotjs-compat.md) |
+| Use Dedot client SDK | [dedot.md](dedot.md) |
 | Build mobile/Flutter dApp | [polkadart.md](polkadart.md) |
 | Write a smart contract | [ink-contracts.md](ink-contracts.md) |
 | Build a pallet / runtime | [substrate-pallets.md](substrate-pallets.md) |
@@ -82,6 +83,7 @@ polkadot-agent-mesh/
 |   |-- ink-contracts.md             ink! smart contracts (v5 stable, v6/PolkaVM transition)
 |   |-- papi-client.md               PAPI client SDK (Smoldot, Observable queries, signers)
 |   |-- polkadotjs-compat.md         Legacy polkadot.js compatibility (boundary pattern)
+|   |-- dedot.md                     Dedot client SDK (tree-shakable, ChainApi types, Smoldot)
 |   |-- polkadart.md                 Polkadart Dart/Flutter SDK (type generation, mobile, crypto)
 |   |-- xcm.md                       XCM v5 (PayFees, InitiateTransfer, SetHints, locations)
 |   |-- coretime.md                  Agile Coretime (Broker.partition, on-demand ordering, bulk)
